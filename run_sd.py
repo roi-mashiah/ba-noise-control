@@ -24,7 +24,7 @@ def run(
     prompt,
     subject_token_indices,
     out_dir='out',
-    seed=160,
+    seed=55,
     batch_size=1,
     filter_token_indices=None,
     eos_token_index=None,
@@ -38,13 +38,14 @@ def run(
     num_gd_iterations=5,
     loss_threshold=0.2,
     num_guidance_steps=15,
+    start_code=None
 ):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = load_model(device)
 
     seed_everything(seed)
     prompts = [prompt] * batch_size
-    start_code = torch.randn([len(prompts), 4, 64, 64], device=device)
+    start_code = torch.randn([len(prompts), 4, 64, 64], device=device) if not start_code else start_code
 
     os.makedirs(out_dir, exist_ok=True)
     sample_count = len(os.listdir(out_dir))
@@ -89,7 +90,7 @@ def main():
         [0.55, 0.2, 0.95, 0.8],
     ]
 
-    prompt = "A ginger kitten and a gray puppy in a yard"
+    prompt = "A white woman and her brown boyfriend in their home"
     subject_token_indices = [[2, 3], [6, 7]]
 
     run(boxes, prompt, subject_token_indices, init_step_size=8, final_step_size=2)
