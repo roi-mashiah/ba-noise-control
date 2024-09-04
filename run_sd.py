@@ -53,6 +53,7 @@ def run(
     num_guidance_steps=15,
     start_code=None,
     input_image=None,
+    recon_input=None,
     description={},
 ):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -106,12 +107,13 @@ def run(
     baseline_images = [("baseline_image", i) for i in baseline_images]
 
     images.append(("input_image", input_image))
+    images.append(("reconstructed_input", recon_input))
 
     all_images = images + baseline_images
 
-    for i, image_tuple in enumerate(all_images):
+    for image_tuple in all_images:
         prefix, image = image_tuple
-        output_filename = os.path.join(out_dir, f"{prefix}_{seed}_{i}.png")
+        output_filename = os.path.join(out_dir, f"{prefix}_{seed}.png")
 
         image = F.to_pil_image(image)
         image.save(output_filename)

@@ -2,6 +2,7 @@ import numpy as np
 import torch, sys, os
 from scipy.ndimage import gaussian_filter
 import torchvision.transforms.functional as F
+import torchvision.transforms as transforms
 
 sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "../ReNoise-Inversion"))
@@ -139,8 +140,8 @@ def get_latents_from_renoise(input_image, prompt):
         pipe_inference=pipe_inference,
         do_reconstruction=True,
     )
-
-    return rec_img, inv_latent
+    transform = transforms.Compose([transforms.PILToTensor()])
+    return transform(rec_img).to(device), inv_latent
 
 
 def rearrange_latent(latents, boxes):
@@ -180,13 +181,13 @@ if __name__ == "__main__":
     recon_img, latents = get_latents_from_renoise(input_image, prompt="")
     start_code = rearrange_latent(latents.cpu(), boxes)
 
-    prompt = "2 brown dogs and a gray cat outside"
+    prompt = "2 brown dogs and a gray cat in the yard"
     subject_token_indices = [[2, 3], [2, 3], [6, 7]]
     run_description = {
         "prompt": prompt,
         "boxes": boxes,
         "token_ind": subject_token_indices,
-        "free_text": "simple test",
+        "free_text": "start code is N(0,1) with gradients with noise in the BB, smoothed with gaussian filter",
     }
 
     run_sd(
@@ -196,7 +197,8 @@ if __name__ == "__main__":
         init_step_size=25,
         final_step_size=10,
         cross_loss_scale=1.5,
-        start_code=latents,
+        start_code=start_code,
         input_image=input_image,
+        recon_input=recon_img,
         description=run_description,
     )
