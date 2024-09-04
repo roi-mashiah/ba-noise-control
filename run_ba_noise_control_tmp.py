@@ -137,10 +137,10 @@ def get_latents_from_renoise(input_image, prompt):
         config,
         pipe_inversion=pipe_inversion,
         pipe_inference=pipe_inference,
-        do_reconstruction=False,
+        do_reconstruction=True,
     )
 
-    return inv_latent, rec_img
+    return rec_img, inv_latent
 
 
 def rearrange_latent(latents, boxes):
@@ -180,13 +180,13 @@ if __name__ == "__main__":
     recon_img, latents = get_latents_from_renoise(input_image, prompt="")
     start_code = rearrange_latent(latents.cpu(), boxes)
 
-    prompt = "2 blue lizards and a green snake outside"
+    prompt = "2 brown dogs and a gray cat outside"
     subject_token_indices = [[2, 3], [2, 3], [6, 7]]
     run_description = {
         "prompt": prompt,
         "boxes": boxes,
         "token_ind": subject_token_indices,
-        "free_text": "",
+        "free_text": "simple test",
     }
 
     run_sd(

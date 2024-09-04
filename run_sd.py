@@ -9,11 +9,24 @@ from pytorch_lightning import seed_everything
 from injection_utils import register_attention_editor_diffusers
 from bounded_attention import BoundedAttention
 import utils
+import json
 
 
 def load_model(device):
-    scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
-    model = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", scheduler=scheduler, cross_attention_kwargs={"scale": 0.5}, torch_dtype=torch.float16, use_safetensors=True).to(device)
+    scheduler = DDIMScheduler(
+        beta_start=0.00085,
+        beta_end=0.012,
+        beta_schedule="scaled_linear",
+        clip_sample=False,
+        set_alpha_to_one=False,
+    )
+    model = StableDiffusionPipeline.from_pretrained(
+        "runwayml/stable-diffusion-v1-5",
+        scheduler=scheduler,
+        cross_attention_kwargs={"scale": 0.5},
+        torch_dtype=torch.float16,
+        use_safetensors=True,
+    ).to(device)
     model.enable_xformers_memory_efficient_attention()
     model.enable_sequential_cpu_offload()
     return model
@@ -23,7 +36,7 @@ def run(
     boxes,
     prompt,
     subject_token_indices,
-    out_dir='out',
+    out_dir="out",
     seed=55,
     batch_size=1,
     filter_token_indices=None,
@@ -38,14 +51,20 @@ def run(
     num_gd_iterations=5,
     loss_threshold=0.2,
     num_guidance_steps=15,
-    start_code=None
+    start_code=None,
+    input_image=None,
+    description={},
 ):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = load_model(device)
 
     seed_everything(seed)
     prompts = [prompt] * batch_size
-    start_code = torch.randn([len(prompts), 4, 64, 64], device=device) if not start_code else start_code
+    start_code = (
+        torch.randn([len(prompts), 4, 64, 64], device=device)
+        if start_code == None
+        else start_code
+    )
 
     os.makedirs(out_dir, exist_ok=True)
     sample_count = len(os.listdir(out_dir))
@@ -74,14 +93,35 @@ def run(
     )
 
     register_attention_editor_diffusers(model, editor)
-    images = model(prompts, latents=start_code, guidance_scale=classifier_free_guidance_scale)
+    images = model(
+        prompts, latents=start_code, guidance_scale=classifier_free_guidance_scale
+    )
+    baseline_images = model(
+        prompts,
+        latents=torch.randn([len(prompts), 4, 64, 64], device=device),
+        guidance_scale=classifier_free_guidance_scale,
+    )
 
-    for i, image in enumerate(images):
+    images = [("noise_control_image", i) for i in images]
+    baseline_images = [("baseline_image", i) for i in baseline_images]
+
+    images.append(("input_image", input_image))
+
+    all_images = images + baseline_images
+
+    for i, image_tuple in enumerate(all_images):
+        prefix, image = image_tuple
+        output_filename = os.path.join(out_dir, f"{prefix}_{seed}_{i}.png")
+
         image = F.to_pil_image(image)
-        image.save(os.path.join(out_dir, f'{seed}_{i}.png'))
-        utils.draw_box(image, boxes).save(os.path.join(out_dir, f'{seed}_{i}_boxes.png'))
+        image.save(output_filename)
 
-    print("Syntheiszed images are saved in", out_dir)
+        utils.draw_box(image, boxes).save(output_filename.replace(".png", "_boxes.png"))
+
+    with open(os.path.join(out_dir, "description.json"), "w") as writer:
+        json.dump(description, writer)
+
+    print("Synthesized images are saved in", out_dir)
 
 
 def main():

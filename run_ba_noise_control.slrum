@@ -1,0 +1,16 @@
+#! /bin/sh
+#SBATCH --constraint="a100"
+#SBATCH --partition="gpu-a100-killable"
+#SBATCH --gres=gpu:1
+#SBATCH --job-name=run_ba_noise_control_tmp
+#SBATCH --output=/home/dcor/omerdh/DLproject/bounded-attention/run_ba_noise_control_tmp.out # redirect stdout
+#SBATCH --error=/home/dcor/omerdh/DLproject/bounded-attention/run_ba_noise_control_tmp.err # redirect stderr
+#SBATCH --time=10 # max time (minutes)
+#SBATCH --signal=USR1@120 # how to end job when time’s up
+#SBATCH --nodes=1 # number of machines
+#SBATCH --ntasks=1 # number of processes
+#SBATCH --mem=100000 # CPU memory (MB)
+#SBATCH --cpus-per-task=4 # CPU cores per process
+#SBATCH --gpus=1 # GPUs in total
+
+python run_ba_noise_control_tmp.py

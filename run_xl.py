@@ -37,13 +37,19 @@ def run(
     num_gd_iterations=5,
     loss_threshold=0.2,
     num_guidance_steps=15,
+    start_code=None
 ):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = load_model(device)
 
     seed_everything(seed)
     prompts = [prompt] * batch_size
-    start_code = torch.randn([len(prompts), 4, 128, 128], device=device)
+    #start_code = torch.randn([len(prompts), 4, 128, 128], device=device)
+    start_code = (
+        torch.randn([len(prompts), 4, 128, 128], device=device)
+        if start_code == None
+        else start_code
+    )
 
     os.makedirs(out_dir, exist_ok=True)
     sample_count = len(os.listdir(out_dir))

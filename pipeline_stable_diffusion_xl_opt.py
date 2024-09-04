@@ -34,10 +34,10 @@ from diffusers.utils import (
     is_accelerate_version,
     is_invisible_watermark_available,
     logging,
-    randn_tensor,
     replace_example_docstring,
 )
-from diffusers.pipeline_utils import DiffusionPipeline
+from diffusers.utils.torch_utils import randn_tensor
+from diffusers import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 
 
@@ -516,6 +516,8 @@ class StableDiffusionXLPipeline(DiffusionPipeline, FromSingleFileMixin, LoraLoad
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
+        print("Latent size: {}".format(shape))
+        print("vae_scale_factor: {}".format(self.vae_scale_factor))
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
