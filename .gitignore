@@ -1,3 +1,6 @@
+*.xlsx
+*.csv
+*.jpg
 *.sh
 *.swp
 out/

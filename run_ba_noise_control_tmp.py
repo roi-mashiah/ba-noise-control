@@ -3,6 +3,7 @@ import torch, sys, os
 from scipy.ndimage import gaussian_filter
 import torchvision.transforms.functional as F
 import torchvision.transforms as transforms
+from PIL import Image
 
 sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "../ReNoise-Inversion"))
@@ -20,11 +21,29 @@ from enums_utils import get_pipes
 from config import RunConfig
 from main import run as invert
 from run_sd import run as run_sd
+from scipy.fft import idct
+import matplotlib.pyplot as plt
 
 
 class ImageHelpers:
     start_color = lambda: np.random.randint(0, 255, (3,))
     end_color = lambda: np.random.randint(0, 255, (3,))
+
+    @staticmethod
+    def dct_based_image(max_freq_ind, num_active_bins=70, grid_size=(512, 512, 3)):
+        img = np.random.randn(*grid_size) * 10 + 50
+        random_ind = np.random.randint(1, max_freq_ind + 1, size=(2, num_active_bins))
+
+        for r in random_ind.T:
+            img[r[0] - 1, r[1] - 1, :] = np.random.rand(1, 3) * 1000 + 3000
+
+        # Apply 2D IDCT
+        temp = idct(img, axis=0, norm="ortho")
+        inv_img = idct(temp, axis=1, norm="ortho")
+        inv_img[inv_img < 64] = 0.0
+        inv_img[inv_img > 232] = 255.0
+        inv_img = np.clip(inv_img, 0, 255).astype(np.uint8)
+        return inv_img
 
     @staticmethod
     def create_color_gradient(image, start_color, end_color, direction="horizontal"):
@@ -87,6 +106,12 @@ class ImageHelpers:
         return input_image
 
     @staticmethod
+    def load_image(path):
+        im = Image.open(path)
+        im = im.convert("RGB")
+        return np.array(im, dtype=np.uint8)
+
+    @staticmethod
     def block_based_adaptive_blur(image, center, max_sigma, min_sigma, block_size=32):
         _, channels, height, width = image.shape
         blurred_image = np.zeros_like(image, dtype=float)
@@ -144,7 +169,9 @@ def get_latents_from_renoise(input_image, prompt):
     return transform(rec_img).to(device), inv_latent
 
 
-def rearrange_latent(latents, boxes):
+def rearrange_latent(latents, boxes, bypass=False):
+    if bypass:
+        return latents.to(device)
     start_code = np.random.randn(*latents.shape)
     _, _, w, h = start_code.shape
     for box in boxes:
@@ -163,6 +190,56 @@ def rearrange_latent(latents, boxes):
     return torch.from_numpy(start_code).to(device)
 
 
+def get_pixel_indices_from_boxes(boxes, img_dims=(512, 512, 3)):
+    resized_boxes = []
+    for box in boxes:
+        temp_box = [
+            img_dims[0] * box[0],
+            img_dims[1] * box[1],
+            img_dims[0] * box[2],
+            img_dims[1] * box[3],
+        ]
+        resized_boxes.append(temp_box)
+    return resized_boxes
+
+
+def get_box_with_margins(box, img_dims, width=20):
+    half_width = width / 2
+    row_0_0 = 0 if box[0] < half_width else box[0] - half_width
+    row_0_1 = width if box[0] < half_width else box[0] + half_width
+    row_1_0 = (
+        img_dims[0] - width
+        if img_dims[0] - box[2] < half_width
+        else box[2] - half_width
+    )
+    row_1_1 = img_dims[0] if img_dims[0] - box[2] < half_width else box[2] + half_width
+
+    col_0_0 = 0 if box[1] < half_width else box[1] - half_width
+    col_0_1 = width if box[1] < half_width else box[1] + half_width
+    col_1_0 = (
+        img_dims[1] - width
+        if img_dims[1] - box[3] < half_width
+        else box[3] - half_width
+    )
+    col_1_1 = img_dims[0] if img_dims[0] - box[3] < half_width else box[3] + half_width
+
+    return row_0_0, row_0_1, row_1_0, row_1_1, col_0_0, col_0_1, col_1_0, col_1_1
+
+
+def create_noise_wiith_deterministic_bbs(boxes, img_dims=(512, 512, 3)):
+    frame = np.random.randn(*img_dims)
+    resized_boxes = get_pixel_indices_from_boxes(boxes, img_dims)
+    for box in boxes:
+        row_0_0, row_0_1, row_1_0, row_1_1, col_0_0, col_0_1, col_1_0, col_1_1 = (
+            get_box_with_margins(box, img_dims)
+        )
+        frame[row_0_0:row_1_1, col_0_0:col_0_1] = np.array([0, 0, 0])
+        frame[row_0_0:row_1_1, col_1_0:col_1_1] = np.array([0, 0, 0])
+        frame[row_0_0:row_0_1, col_0_0:col_1_1] = np.array([0, 0, 0])
+        frame[row_1_0:row_1_1, col_0_0:col_1_1] = np.array([0, 0, 0])
+    return frame
+
+
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     boxes = [
@@ -171,23 +248,30 @@ if __name__ == "__main__":
         [0.6, 0.6, 0.9, 0.9],  # Object 3
     ]
 
-    input_image = ImageHelpers.draw_boxes_on_grid(
-        boxes,
-        ImageHelpers.start_color(),
-        ImageHelpers.end_color(),
-        grid_size=(512, 512, 3),
-    )
+    # input_image = ImageHelpers.draw_boxes_on_grid(
+    #     boxes,
+    #     ImageHelpers.start_color(),
+    #     ImageHelpers.end_color(),
+    #     grid_size=(512, 512, 3),
+    # )
 
+    # input_image = create_noise_wiith_deterministic_bbs(boxes)
+    # plt.savefig("/home/dcor/omerdh/DLproject/out/noise_with_boxes.png")
+    # #return
+    max_f = 130
+    active_bins = 100
+    # input_image = ImageHelpers.dct_based_image(max_f, active_bins)
+    input_image = ImageHelpers.load_image("edited.jpg")
     recon_img, latents = get_latents_from_renoise(input_image, prompt="")
-    start_code = rearrange_latent(latents.cpu(), boxes)
+    start_code = rearrange_latent(latents.cpu(), boxes, False)
 
-    prompt = "2 brown dogs and a gray cat in the yard"
+    prompt = "two brown puppies and a gray kitten in the yard"
     subject_token_indices = [[2, 3], [2, 3], [6, 7]]
     run_description = {
         "prompt": prompt,
         "boxes": boxes,
         "token_ind": subject_token_indices,
-        "free_text": "start code is N(0,1) with gradients with noise in the BB, smoothed with gaussian filter",
+        "free_text": f"start code is inverted image of prompt, BB of the inversion is Zt with smoothing",
     }
 
     run_sd(
