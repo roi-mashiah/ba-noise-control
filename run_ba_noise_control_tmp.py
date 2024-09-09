@@ -194,59 +194,72 @@ def get_pixel_indices_from_boxes(boxes, img_dims=(512, 512, 3)):
     resized_boxes = []
     for box in boxes:
         temp_box = [
-            img_dims[0] * box[0],
-            img_dims[1] * box[1],
-            img_dims[0] * box[2],
-            img_dims[1] * box[3],
+            int(img_dims[0] * box[0]),
+            int(img_dims[1] * box[1]),
+            int(img_dims[0] * box[2]),
+            int(img_dims[1] * box[3]),
         ]
         resized_boxes.append(temp_box)
     return resized_boxes
 
 
 def get_box_with_margins(box, img_dims, width=20):
-    half_width = width / 2
-    row_0_0 = 0 if box[0] < half_width else box[0] - half_width
-    row_0_1 = width if box[0] < half_width else box[0] + half_width
-    row_1_0 = (
-        img_dims[0] - width
-        if img_dims[0] - box[2] < half_width
-        else box[2] - half_width
-    )
-    row_1_1 = img_dims[0] if img_dims[0] - box[2] < half_width else box[2] + half_width
-
-    col_0_0 = 0 if box[1] < half_width else box[1] - half_width
-    col_0_1 = width if box[1] < half_width else box[1] + half_width
-    col_1_0 = (
-        img_dims[1] - width
-        if img_dims[1] - box[3] < half_width
-        else box[3] - half_width
-    )
-    col_1_1 = img_dims[0] if img_dims[0] - box[3] < half_width else box[3] + half_width
-
-    return row_0_0, row_0_1, row_1_0, row_1_1, col_0_0, col_0_1, col_1_0, col_1_1
+    half_width = int(width / 2)
+    col_0_0 = 0 if box[0] < half_width else box[0] - half_width
+    col_0_1 = width if box[0] < half_width else box[0] + half_width
+    col_1_0 = img_dims[0] - width if img_dims[0] - box[2] < half_width else box[2] - half_width
+    col_1_1 = img_dims[0] if img_dims[0] - box[2] < half_width else box[2] + half_width
+    row_0_0 = 0 if box[1] < half_width else box[1] - half_width
+    row_0_1 = width if box[1] < half_width else box[1] + half_width
+    row_1_0 = img_dims[1] - width if img_dims[1] - box[3] < half_width else box[3] - half_width
+    row_1_1 = img_dims[0] if img_dims[0] - box[3] < half_width else box[3] + half_width
+    return col_0_0, col_0_1, col_1_0, col_1_1, row_0_0, row_0_1, row_1_0, row_1_1
 
 
-def create_noise_wiith_deterministic_bbs(boxes, img_dims=(512, 512, 3)):
+def create_noise_wiith_deterministic_bbs(boxes, img_dims=(512, 512, 3), width=20):
     frame = np.random.randn(*img_dims)
+    #normalized_noise = (noise - np.min(noise)) / (np.max(noise) - np.min(noise))
+    #frame = (normalized_noise * 255).astype(np.uint8)
     resized_boxes = get_pixel_indices_from_boxes(boxes, img_dims)
-    for box in boxes:
-        row_0_0, row_0_1, row_1_0, row_1_1, col_0_0, col_0_1, col_1_0, col_1_1 = (
-            get_box_with_margins(box, img_dims)
-        )
-        frame[row_0_0:row_1_1, col_0_0:col_0_1] = np.array([0, 0, 0])
-        frame[row_0_0:row_1_1, col_1_0:col_1_1] = np.array([0, 0, 0])
-        frame[row_0_0:row_0_1, col_0_0:col_1_1] = np.array([0, 0, 0])
-        frame[row_1_0:row_1_1, col_0_0:col_1_1] = np.array([0, 0, 0])
+    for box in resized_boxes:
+        col_0_0, col_0_1, col_1_0, col_1_1, row_0_0, row_0_1, row_1_0, row_1_1 = get_box_with_margins(box, img_dims, width)
+        print("row_0_0, row_0_1, row_1_0, row_1_1, col_0_0, col_0_1, col_1_0, col_1_1 = {}, {}, {}, {}, {}, {}, {}, {}".format(row_0_0, row_0_1, row_1_0, row_1_1, col_0_0, col_0_1, col_1_0, col_1_1))
+        frame[row_0_0:row_1_1, col_0_0:col_0_1] = np.array([100, 100, 100])
+        frame[row_0_0:row_1_1, col_1_0:col_1_1] = np.array([100, 100, 100])
+        frame[row_0_0:row_0_1, col_0_0:col_1_1] = np.array([100, 100, 100])
+        frame[row_1_0:row_1_1, col_0_0:col_1_1] = np.array([100, 100, 100])
+    return frame.astype(np.uint8)
+    
+def create_noise_wiith_filled_bbs(boxes, img_dims=(512, 512, 3), width=20):
+    noise = np.random.randn(*img_dims)
+    normalized_noise = (noise - np.min(noise)) / (np.max(noise) - np.min(noise))
+    frame = (normalized_noise * 255).astype(np.uint8)
+    #resized_boxes = get_pixel_indices_from_boxes(boxes, img_dims)
+    #for box in resized_boxes:
+    #    col_0_0, col_0_1, col_1_0, col_1_1, row_0_0, row_0_1, row_1_0, row_1_1 = get_box_with_margins(box, img_dims, width)
+    #    print("row_0_0, row_0_1, row_1_0, row_1_1, col_0_0, col_0_1, col_1_0, col_1_1 = {}, {}, {}, {}, {}, {}, {}, {}".format(row_0_0, row_0_1, row_1_0, row_1_1, col_0_0, col_0_1, col_1_0, col_1_1))
+    #    #frame[row_0_0:row_1_1, col_0_0:col_0_1] = np.array([0, 0, 0])
+    #    #frame[row_0_0:row_1_1, col_1_0:col_1_1] = np.array([0, 0, 0])
+    #    #frame[row_0_0:row_0_1, col_0_0:col_1_1] = np.array([0, 0, 0])
+    #    #frame[row_1_0:row_1_1, col_0_0:col_1_1] = np.array([0, 0, 0])
+    #    alpha = 0.1
+    #    frame[row_0_0:row_1_1, col_0_0:col_1_1] = (frame[row_0_0:row_1_1, col_0_0:col_1_1] * (1 - alpha) + 255 * alpha).astype(np.uint8)
     return frame
 
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    '''
     boxes = [
         [0.05, 0.1, 0.35, 0.4],  # Object 1
         [0.45, 0.15, 0.75, 0.45],  # Object 2
         [0.6, 0.6, 0.9, 0.9],  # Object 3
     ]
+    '''
+    boxes = [
+        [0.05, 0.5, 0.35, 0.7],  # Object 1
+        [0.45, 0.6, 0.75, 0.8]  # Object 2
+        ]
 
     # input_image = ImageHelpers.draw_boxes_on_grid(
     #     boxes,
@@ -261,18 +274,25 @@ if __name__ == "__main__":
     max_f = 130
     active_bins = 100
     # input_image = ImageHelpers.dct_based_image(max_f, active_bins)
-    input_image = ImageHelpers.load_image("edited.jpg")
+    #input_image = ImageHelpers.load_image("edited.jpg")
+    #input_image = create_noise_wiith_deterministic_bbs(boxes, img_dims=(512, 512, 3), width=2)
+    input_image = create_noise_wiith_filled_bbs(boxes, img_dims=(512, 512, 3), width=2)
+    plt.imshow(input_image)
+    plt.savefig('/home/dcor/omerdh/DLproject/bounded-attention/out/noise_with_bbs_and_margins.png')
     recon_img, latents = get_latents_from_renoise(input_image, prompt="")
-    start_code = rearrange_latent(latents.cpu(), boxes, False)
+    #start_code = rearrange_latent(latents.cpu(), boxes, False)
+    
 
-    prompt = "two brown puppies and a gray kitten in the yard"
-    subject_token_indices = [[2, 3], [2, 3], [6, 7]]
+    prompt = "A balck crow and a red cat"
+    subject_token_indices = [[2, 3], [6, 7]]
     run_description = {
         "prompt": prompt,
         "boxes": boxes,
         "token_ind": subject_token_indices,
-        "free_text": f"start code is inverted image of prompt, BB of the inversion is Zt with smoothing",
+        "free_text": f"start code is inverted image of prompt, BB of the inversion is Zt with smoothing. Gaussian noise with full BBs, filling disabled. Normalized noise.",
     }
+    
+    #latents = None
 
     run_sd(
         boxes,
@@ -281,7 +301,7 @@ if __name__ == "__main__":
         init_step_size=25,
         final_step_size=10,
         cross_loss_scale=1.5,
-        start_code=start_code,
+        start_code=latents,
         input_image=input_image,
         recon_input=recon_img,
         description=run_description,
