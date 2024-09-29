@@ -21,7 +21,8 @@ from enums_utils import get_pipes
 from config import RunConfig
 from main import run as invert
 from image_helpers import ImageHelpers
-
+from enum import Enum
+from create_img import run as create_image_via_api
 
 from diffusers import DDIMScheduler
 from pipeline_stable_diffusion_opt import StableDiffusionPipeline
@@ -31,6 +32,49 @@ from scipy.fft import idct
 from injection_utils import register_attention_editor_diffusers
 from bounded_attention import BoundedAttention
 import utils
+
+
+class MethodType(Enum):
+    APIMethod = 1
+    GPMethod = 2
+
+
+class FileHelpers:
+    @staticmethod
+    def save_images(images, boxes, out_dir, source):
+        for image in images:
+            image = F.to_pil_image(image)
+            utils.draw_box(image, boxes).save(
+                os.path.join(out_dir, f"{source}_w_boxes.png")
+            )
+        print("Syntheiszed images are saved in", out_dir)
+
+    @staticmethod
+    def load_json(path=r"./db_inputs.json"):
+        try:
+            with open(path, "r") as reader:
+                raw_json = json.load(reader)
+            return raw_json
+        except Exception as ex:
+            print(f"Problem when opening the json!!!\n{ex}")
+
+    @staticmethod
+    def create_output_dir(input_key, output_folder="out"):
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+        sample_count = len(os.listdir(output_folder))
+        out_dir = os.path.join(output_folder, f"sample_{sample_count}_{input_key}")
+        os.makedirs(out_dir)
+        return out_dir
+
+    @staticmethod
+    def get_inputs(input_obj):
+        prompt, boxes, subject_token_indices = (
+            input_obj["prompt"],
+            input_obj["boxes"],
+            input_obj["references"],
+        )
+        return prompt, boxes, subject_token_indices
 
 
 def load_model(device):
@@ -110,42 +154,6 @@ def run(
     return images
 
 
-def save_images(images, boxes, out_dir, source):
-    for image in images:
-        image = F.to_pil_image(image)
-        utils.draw_box(image, boxes).save(
-            os.path.join(out_dir, f"{source}_w_boxes.png")
-        )
-
-    print("Syntheiszed images are saved in", out_dir)
-
-
-def load_json(path=r"./db_inputs.json"):
-    try:
-        with open(path, "r") as reader:
-            raw_json = json.load(reader)
-        return raw_json
-    except Exception as ex:
-        print(f"Problem when opening the json!!!\n{ex}")
-
-
-def get_inputs(input_obj, preconstructed_img=False):
-    prompt, boxes, subject_token_indices = (
-        input_obj["prompt"],
-        input_obj["boxes"],
-        input_obj["references"],
-    )
-    if preconstructed_img:
-        img_path = os.path.join(
-            "/home/dcor/omerdh/DLproject/omri_files/bounded-attention/inputs/",
-            input_obj["img_path"],
-        )
-        input_image = Image.open(img_path).convert("RGB").resize((512, 512))
-    else:
-        input_image = None
-    return prompt, boxes, subject_token_indices, input_image
-
-
 def rearrange_latent(latents, boxes, bypass=False):
     if bypass:
         return latents.to(device)
@@ -167,39 +175,65 @@ def rearrange_latent(latents, boxes, bypass=False):
     return torch.from_numpy(start_code).to(device)
 
 
-def main():
-    # model_type = Model_Type.SD15
-    # scheduler_type = Scheduler_Type.DDIM
+def run_inversion(input_image):
+    model_type = Model_Type.SD15
+    scheduler_type = Scheduler_Type.DDIM
 
-    inputs_json = load_json()
+    pipe_inversion, pipe_inference = get_pipes(
+        model_type, scheduler_type, device=device
+    )
+    config = RunConfig(
+        model_type=model_type,
+        num_inference_steps=50,
+        num_inversion_steps=50,
+        num_renoise_steps=1,
+        scheduler_type=scheduler_type,
+        perform_noise_correction=False,
+        seed=7865,
+    )
+
+    _, inv_latent, _, all_latents = invert(
+        input_image,
+        "",
+        config,
+        pipe_inversion=pipe_inversion,
+        pipe_inference=pipe_inference,
+        do_reconstruction=False,
+    )
+    return inv_latent
+
+
+def get_api_based_latents(input_object):
+    api_generated_image = create_image_via_api(input_object)
+    inv_latent = run_inversion(api_generated_image)
+    return inv_latent
+
+
+def get_gp_based_latents(boxes):
+    start_code = ImageHelpers.plant_patches_in_latent(boxes)
+    return torch.from_numpy(start_code).to(device)
+
+
+def get_latents_by_method(input_object):
+    method = input_object.get("method", "GPMethod")
+    try:
+        if MethodType[method] == MethodType.APIMethod:
+            return get_api_based_latents(input_object)
+        elif MethodType[method] == MethodType.GPMethod:
+            return get_gp_based_latents(input_object["boxes"])
+    except ValueError as v:
+        raise ValueError(f"Method Type {method} is not supported...\n{v}")
+    except Exception as ex:
+        raise ex
+
+
+def main(path_to_input="./db_inputs.json"):
+    inputs_json = FileHelpers.load_json(path_to_input)
+
     for input_key, input_obj in inputs_json.items():
-        prompt, boxes, subject_token_indices, _ = get_inputs(input_obj, False)
-        # input_image = ImageHelpers.draw_boxes_on_grid_monotone(boxes)
+        latents = get_latents_by_method(input_obj)
+        prompt, boxes, subject_token_indices = FileHelpers.get_inputs(input_obj)
 
-        # pipe_inversion, pipe_inference = get_pipes(
-        #     model_type, scheduler_type, device=device
-        # )
-        # config = RunConfig(
-        #     model_type=model_type,
-        #     num_inference_steps=50,
-        #     num_inversion_steps=50,
-        #     num_renoise_steps=1,
-        #     scheduler_type=scheduler_type,
-        #     perform_noise_correction=False,
-        #     seed=7865,
-        # )
-
-        # _, inv_latent, _, all_latents = invert(
-        #     input_image,
-        #     prompt,
-        #     config,
-        #     pipe_inversion=pipe_inversion,
-        #     pipe_inference=pipe_inference,
-        #     do_reconstruction=False,
-        # )
-        # start_code = rearrange_latent(inv_latent.cpu(), boxes, True)
-        start_code = ImageHelpers.plant_patches_in_latent(boxes)
-        start_code = torch.from_numpy(start_code).to(device)
         ba_images = run(
             boxes, prompt, subject_token_indices, init_step_size=8, final_step_size=2
         )
@@ -209,17 +243,16 @@ def main():
             subject_token_indices,
             init_step_size=8,
             final_step_size=2,
-            start_code=start_code,
+            start_code=latents,
         )
 
-        sample_count = len(os.listdir("out_test"))
-        out_dir = os.path.join("out_test", f"sample_{sample_count}_{input_key}")
-        os.makedirs(out_dir)
+        out_dir = FileHelpers.create_output_dir(input_key)
 
-        save_images(ba_images, boxes, out_dir, source="ba")
-        save_images(nc_images, boxes, out_dir, source="noise_control")
+        FileHelpers.save_images(ba_images, boxes, out_dir, source="ba")
+        FileHelpers.save_images(nc_images, boxes, out_dir, source="noise_control")
 
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    main()
+    input_json_path = r""
+    main(input_json_path)

@@ -16,3 +16,4 @@ torchvision==0.15.2
 transformers==4.32.0
 spaces==0.24.2
 xformers==0.0.21
+google-api-python-client==2.147.0
