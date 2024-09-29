@@ -1,116 +1,57 @@
-# Be Yourself: Bounded Attention for Multi-Subject Text-to-Image Generation (ECCV 2024)
+# Improvements on Bounded Attention: Initial Seed Optimization
 
-> **Omer Dahary, Or Patashnik, Kfir Aberman, Daniel Cohen-Or**
+> **Omri Atir, Roi Mashiah, Ori Assulin**
 > 
-> Text-to-image diffusion models have an unprecedented ability to generate diverse and high-quality images. However, they often struggle to faithfully capture the intended semantics of complex input prompts that include multiple subjects. Recently, numerous layout-to-image extensions have been introduced to improve user control, aiming to localize subjects represented by specific tokens. Yet, these methods often produce semantically inaccurate images, especially when dealing with multiple semantically or visually similar subjects. In this work, we study and analyze the causes of these limitations. Our exploration reveals that the primary issue stems from inadvertent semantic leakage between subjects in the denoising process. This leakage is attributed to the diffusion model’s attention layers, which tend to blend the visual features of different subjects. To address these issues, we introduce Bounded Attention, a training-free method for bounding the information flow in the sampling process. Bounded Attention prevents detrimental leakage among subjects and enables guiding the generation to promote each subject's individuality, even with complex multi-subject conditioning. Through extensive experimentation, we demonstrate that our method empowers the generation of multiple subjects that better align with given prompts and layouts.
+> In this work, we try to suggest improvements on the paper "Be Yourself: Bounded Attention for Multi-Subject Text-to-Image Generation (ECCV 2024)". This paper deals with layout guidance in text to image models to create spatialy coherent images as well as control over the number of desired objects. The original paper achieves this in inference mode without the need to retrain the model via optimization on the attention layers and manipulation of the way the losses are calculated. This approach yeilds promising results, although, in some cases, it fails to position the correct amount of objects in the bounding boxes. This work tries to promote object creation inside the bounding boxes by tampering with the initial noise that the diffusion model tries to clean. We tried different methods for this matter and we will present how to run each method.
 
-<a href="https://omer11a.github.io/bounded-attention/"><img src="https://img.shields.io/static/v1?label=Project&message=Website&color=red" height=20.5></a> 
-<a href="https://arxiv.org/abs/2403.16990"><img src="https://img.shields.io/badge/arXiv-BA-b31b1b.svg" height=20.5></a>
-[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/omer11a/bounded-attention)
-
-<p align="center">
-<img src="images/teaser.jpg" width="800px"/>
-</p>
+[GitHub Repository](https://github.com/roi-mashiah/ba-noise-control.git)
 
 ## Description  
-Official implementation of our "Be Yourself: Bounded Attention for Multi-Subject Text-to-Image Generation" paper.
-
+We built upon the existing Bounded Attention [implementation](https://github.com/omer11a/bounded-attention.git). The main approach is as follows - generate an input image that is meant to promote object generation located at the bounding boxes, perform DDIM inversion, use the inverse latent as a seed for Bounded Attention.
 ## Setup
-
+First we need to clone the two repositories - [our project](https://github.com/roi-mashiah/ba-noise-control.git) and the [inversion project](https://github.com/garibida/ReNoise-Inversion.git) to one directory.
 ### Environment
-
 To set up the environment, run:
-
 ```
 conda create --name bounded-attention python=3.11.4
 conda activate bounded-attention
 pip install -r requirements.txt
 ```
-
 Then, run in Python:
-
 ```
 import nltk
 nltk.download('averaged_perceptron_tagger')
 ```
-
-### Demo
-
-This project has a gradio [demo](https://huggingface.co/spaces/omer11a/bounded-attention) deployed in HuggingFace.
-To run the demo locally, run the following: 
-```shell
-gradio app.py
-```
-Then, you can connect to the local demo by browsing to `http://localhost:7860/`.
-
 ## Usage
-
-<p align="center">
-<img src="images/example.jpg" width="800px"/>  
-<br>
-Example generations by SDXL with and without Bounded Attention.
-</p>
-
-### Basics
-
-To generate images, you can run `run_xl.py` for our SDXL version, and `run_sd.py` for our Stable Diffusion version.
-In each script, we call the `run` function to generate the images. E.g.,
+Both methods call the Bounded Attention model with random Normal Gaussian noise as the latent for comparison.
+The script that is used to create images is `run_sd.py`. The script's main takes a path to the input json file. The json file should have the following format, where the method is an Enum - `MethodType("GPMethod", "APIMethod")`:
 ```
-boxes = [
-    [0.35, 0.4, 0.65, 0.9],
-    [0, 0.6, 0.3, 0.9],
-    [0.7, 0.55, 1, 0.85],
-]
-
-prompt = "3 D Pixar animation of a cute unicorn and a pink hedgehog and a nerdy owl traveling in a magical forest"
-subject_token_indices = [[7, 8, 17], [11, 12, 17], [15, 16, 17]]
-
-run(boxes, prompt, subject_token_indices, init_step_size=25, final_step_size=10)
+{
+  "1": {
+    "prompt": "A train on top of a surfboard.",
+    "boxes": [
+      [0.25390625,0.15625,0.751953125,0.46875],
+      [0.146484375,0.5078125,0.859375,0.87890625]
+    ],
+    "references": [[2],[7]],
+    "background": "railroad",
+    "method": "GPMethod"
+  }
+}
+```
+The full path should be assigned to the appropriate variable:
+```
+if __name__ == "__main__":
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    input_json_path = r"your/path/to/input/json"
+    main(input_json_path)
 ```
 
-The `run` function receives the following parameters:
-- boxes: the bounding box of each subject in the format [(x0, y0, x1, x2), ...], where x=0,y=0 represents the top-left corner of the image, and x=1,y=1 represents the bottom-right corner.
-- prompt: the textual prompt.
-- subject_token_indices: The indices of each token belonging to each subject, where the indices start from 1. Tokens can be shared between subjects.
-- out_dir: The output directory. Defaults to "out".
-- seed: The random seed.
-- batch_size: The number of generated images.
-- filter_token_indices: The indices of the tokens to ignore. This is automatically inferred, but we recommend explicitly ignoring prepositions, numbers and positional relations.
-- eos_token_index: The index of the EOS token (the first padding token appended to the end of the prompt). This is automatically inferred, but we recommend explicitly passing it, as we use it to verify you have correctly counted the number of tokens.
+### API Patches
+In this method we generate a rough version of the desired image via Google Search API and creating patches. A prerequisite for this method is to use your Google account to generate an API Key and a Search Engine ID as explained [here](https://developers.google.com/custom-search/v1/overview). Once you have them, insert the values in the script `create_img.py`. 
 
-### Advanced options
+To generate images based on the API method, assign `"method": "APIMethod"` in the input json.
+### Gaussian Patches 
+In this method we generate Normal distribution latents, where the bounding boxes are filled with gaussian samples of a different variance. 
+To generate images based on the Gaussian Patches method, assign `"method": "GPMethod"` in the input json or omit the "method" key as this is the default value.
 
-The `run` function also supports the following optional hyperparameters:
-
-- init_step_size: The initial step size of the linear step size scheduler when performing guidance.
-- final_step_size: The final step size of the linear step size scheduler when performing guidance.
-- num_clusters_per_subject: The number of clusters computed when clustering the self-attention maps (#clusters = #subject x #clusters_per_subject). Changing this value might improve semantics (adherence to the prompt), especially when the subjects exceed their bounding boxes.
-- cross_loss_scale: The scale factor of the cross-attention loss term. Increasing it will improve semantic control (adherence to the prompt), but may reduce image quality.
-- self_loss_scale: The scale factor of the self-attention loss term. Increasing it will improve layout control (adherence to the bounding boxes), but may reduce image quality.
-- classifier_free_guidance_scale: The scale factor of classifier-free guidance.
-- num_guidance_steps: The number of timesteps in which to perform guidance. Decreasing this also decreases the runtime.
-- first_refinement_step: The timestep from which subject mask refinement is performed.
-- num_gd_iterations: The number of Gradient Descent iterations for each timestep when performing guidance.
-- loss_threshold: If the loss is below the threshold, Gradient Descent stops for that timestep.
-
-## Acknowledgements 
-
-This code was built using the code from the following repositories:
-- [diffusers](https://github.com/huggingface/diffusers)
-- [Prompt-to-Prompt](https://github.com/google/prompt-to-prompt/)
-- [MasaCtrl](https://github.com/TencentARC/MasaCtrl)
-
-## Citation
-
-If you use this code for your research, please cite our paper:
-
-```
-@misc{dahary2024yourself,
-    title={Be Yourself: Bounded Attention for Multi-Subject Text-to-Image Generation},
-    author={Omer Dahary and Or Patashnik and Kfir Aberman and Daniel Cohen-Or},
-    year={2024},
-    eprint={2403.16990},
-    archivePrefix={arXiv},
-    primaryClass={cs.CV}
- }
-```
