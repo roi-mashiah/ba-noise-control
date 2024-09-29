@@ -1,0 +1,13 @@
+#! /bin/sh
+
+#SBATCH --job-name=run_sd_BandW
+#SBATCH --output=/home/dcor/omerdh/DLproject/omri_files/bounded-attention/run_sd_BW.out # redirect stdout
+#SBATCH --error=/home/dcor/omerdh/DLproject/omri_files/bounded-attention/run_sd_BW.err # redirect stderr
+#SBATCH --constraint="tesla_v100"
+#SBATCH --gres=gpu:1
+#SBATCH --time=600 # max time (minutes)
+#SBATCH --signal=USR1@120 # how to end job when time’s up
+
+
+python run_sd_black_and_white_boxes.py
+

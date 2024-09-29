@@ -3,9 +3,11 @@ import torch
 import torchvision.transforms.functional as F
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"  # Use GPU 2 and 3
+import requests
 import sys
 from PIL import Image
 import numpy as np
+from io import BytesIO
 import json
 
 sys.path.append("/home/dcor/omerdh/DLproject/ReNoise-Inversion")
@@ -20,7 +22,6 @@ from eunms import Model_Type, Scheduler_Type
 from enums_utils import get_pipes
 from config import RunConfig
 from main import run as invert
-from image_helpers import ImageHelpers
 
 
 from diffusers import DDIMScheduler
@@ -31,6 +32,22 @@ from scipy.fft import idct
 from injection_utils import register_attention_editor_diffusers
 from bounded_attention import BoundedAttention
 import utils
+
+
+def dct_based_image(max_freq_ind, num_active_bins=70, grid_size=(512, 512, 3)):
+    img = np.random.randn(*grid_size) * 10 + 50
+    random_ind = np.random.randint(1, max_freq_ind + 1, size=(2, num_active_bins))
+
+    for r in random_ind.T:
+        img[r[0] - 1, r[1] - 1, :] = np.random.rand(1, 3) * 1000 + 3000
+
+    # Apply 2D IDCT
+    temp = idct(img, axis=0, norm="ortho")
+    inv_img = idct(temp, axis=1, norm="ortho")
+    inv_img[inv_img < 64] = 0.0
+    inv_img[inv_img > 232] = 255.0
+    inv_img = np.clip(inv_img, 0, 255).astype(np.uint8)
+    return inv_img
 
 
 def load_model(device):
@@ -81,7 +98,7 @@ def run(
     prompts = [prompt] * batch_size
     if start_code == None:
         start_code = torch.randn([len(prompts), 4, 64, 64], device=device)
-    print(f"Start Code size:{start_code.shape}\nStart Code:{start_code}")
+
     editor = BoundedAttention(
         boxes,
         prompts,
@@ -129,77 +146,90 @@ def load_json(path=r"./db_inputs.json"):
         print(f"Problem when opening the json!!!\n{ex}")
 
 
-def get_inputs(input_obj, preconstructed_img=False):
-    prompt, boxes, subject_token_indices = (
-        input_obj["prompt"],
-        input_obj["boxes"],
-        input_obj["references"],
-    )
-    if preconstructed_img:
-        img_path = os.path.join(
-            "/home/dcor/omerdh/DLproject/omri_files/bounded-attention/inputs/",
-            input_obj["img_path"],
-        )
-        input_image = Image.open(img_path).convert("RGB").resize((512, 512))
-    else:
-        input_image = None
-    return prompt, boxes, subject_token_indices, input_image
-
-
-def rearrange_latent(latents, boxes, bypass=False):
-    if bypass:
-        return latents.to(device)
-    start_code = np.random.randn(*latents.shape)
-    _, _, w, h = start_code.shape
-    for box in boxes:
-        x_min = int(box[0] * w)
-        y_min = int(box[1] * h)
-        x_max = int(box[2] * w)
-        y_max = int(box[3] * h)
-        sub_grid = np.random.randn(1, 4, y_max - y_min + 8, x_max - x_min + 8)
-        sub_grid[:, :, 4:-4, 4:-4] = latents[:, :, y_min:y_max, x_min:x_max]
-        center = (sub_grid.shape[1] // 2, sub_grid.shape[0] // 2)
-        smoothed_grid = ImageHelpers.block_based_adaptive_blur(
-            sub_grid, center, max_sigma=3, min_sigma=0.2, block_size=8
-        )
-        start_code[:, :, y_min:y_max, x_min:x_max] = smoothed_grid[:, :, 4:-4, 4:-4]
-
-    return torch.from_numpy(start_code).to(device)
+#def get_inputs(input_obj, preconstructed_img=False):
+#    prompt, boxes, subject_token_indices = (
+#        input_obj["prompt"],
+#        input_obj["boxes"],
+#        input_obj["references"],
+#    )
+#    if preconstructed_img:
+#        img_path = os.path.join(
+#            "/home/dcor/omerdh/DLproject/omri_files/bounded-attention/inputs/",
+#            input_obj["img_path"],
+#        )
+#        input_image = Image.open(img_path).convert("RGB").resize((512, 512))
+#    else:
+#        input_image = None
+#    return prompt, boxes, subject_token_indices, input_image
 
 
 def main():
-    # model_type = Model_Type.SD15
-    # scheduler_type = Scheduler_Type.DDIM
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model_type = Model_Type.SD15
+        scheduler_type = Scheduler_Type.DDIM
 
-    inputs_json = load_json()
-    for input_key, input_obj in inputs_json.items():
-        prompt, boxes, subject_token_indices, _ = get_inputs(input_obj, False)
-        # input_image = ImageHelpers.draw_boxes_on_grid_monotone(boxes)
+#    inputs_json = load_json()
+#    for input_key, input_obj in inputs_json.items():
+#        if input_key != "45":
+#           continue
+#        prompt, boxes, subject_token_indices, input_image = get_inputs(input_obj, True)
 
-        # pipe_inversion, pipe_inference = get_pipes(
-        #     model_type, scheduler_type, device=device
-        # )
-        # config = RunConfig(
-        #     model_type=model_type,
-        #     num_inference_steps=50,
-        #     num_inversion_steps=50,
-        #     num_renoise_steps=1,
-        #     scheduler_type=scheduler_type,
-        #     perform_noise_correction=False,
-        #     seed=7865,
-        # )
+        input_image = Image.open("carrot_brocc.jpeg").convert("RGB").resize((512, 512))
 
-        # _, inv_latent, _, all_latents = invert(
-        #     input_image,
-        #     prompt,
-        #     config,
-        #     pipe_inversion=pipe_inversion,
-        #     pipe_inference=pipe_inference,
-        #     do_reconstruction=False,
-        # )
-        # start_code = rearrange_latent(inv_latent.cpu(), boxes, True)
-        start_code = ImageHelpers.plant_patches_in_latent(boxes)
-        start_code = torch.from_numpy(start_code).to(device)
+        boxes = [
+            [0.0195, 0.2929, 0.2929, 0.5468],
+            [0.3906, 0.2246, 0.6933, 0.5371]
+        ]
+        prompt = "A carrot on the left of a broccoli"
+        subject_token_indices = [[2], [8]]
+
+        pipe_inversion, pipe_inference = get_pipes(
+            model_type, scheduler_type, device=device
+        )
+        config = RunConfig(
+            model_type=model_type,
+            num_inference_steps=50,
+            num_inversion_steps=50,
+            num_renoise_steps=1,
+            scheduler_type=scheduler_type,
+            perform_noise_correction=False,
+            seed=7865,
+        )
+
+        _, inv_latent, _, all_latents = invert(
+            input_image,
+            prompt,
+            config,
+            pipe_inversion=pipe_inversion,
+            pipe_inference=pipe_inference,
+            do_reconstruction=False,
+        )
+        
+
+        gaussian_noise = torch.randn(1, 4, 64, 64).cuda()
+
+        # Get the dimensions (height and width) of the relevant 2D part of my_tensor
+        height, width = inv_latent.shape[2], inv_latent.shape[3]
+
+        # Create a mask with zeros and apply Gaussian noise outside the boxes
+        mask = torch.zeros(1, 1, height, width).cuda()
+
+        for box in boxes:
+            # Convert relative coordinates to absolute pixel coordinates
+            x_min = int(box[0] * width)
+            y_min = int(box[1] * height)
+            x_max = int(box[2] * width)
+            y_max = int(box[3] * height)
+    
+        # Set the mask for the area inside the box to 1
+        mask[:, :, y_min:y_max, x_min:x_max] = 1
+
+        # Expand mask to cover all channels (4 channels in this case)
+        mask = mask.expand_as(inv_latent)
+
+        # Apply the mask: keep original values inside boxes and apply Gaussian noise outside
+        inv_latent = inv_latent * mask + gaussian_noise * (1 - mask)
+
         ba_images = run(
             boxes, prompt, subject_token_indices, init_step_size=8, final_step_size=2
         )
@@ -209,11 +239,11 @@ def main():
             subject_token_indices,
             init_step_size=8,
             final_step_size=2,
-            start_code=start_code,
+            start_code=inv_latent,
         )
 
-        sample_count = len(os.listdir("out_test"))
-        out_dir = os.path.join("out_test", f"sample_{sample_count}_{input_key}")
+        sample_count = len(os.listdir("out"))
+        out_dir = os.path.join("out", f"omrirandbackgroundoriginalboxes4")
         os.makedirs(out_dir)
 
         save_images(ba_images, boxes, out_dir, source="ba")
@@ -221,5 +251,4 @@ def main():
 
 
 if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     main()

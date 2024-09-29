@@ -1,0 +1,13 @@
+#! /bin/sh
+
+#SBATCH --job-name=run_sd
+#SBATCH --output=/home/dcor/omerdh/DLproject/omri_files/bounded-attention/run_sd_omri.out # redirect stdout
+#SBATCH --error=/home/dcor/omerdh/DLproject/omri_files/bounded-attention/run_sd_omri.err # redirect stderr
+#SBATCH --constraint="tesla_v100"
+#SBATCH --gres=gpu:1
+#SBATCH --time=600 # max time (minutes)
+#SBATCH --signal=USR1@120 # how to end job when time’s up
+
+
+python run_sd.py
+
